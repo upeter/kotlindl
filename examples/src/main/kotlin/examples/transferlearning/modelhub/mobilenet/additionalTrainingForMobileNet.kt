@@ -4,8 +4,12 @@
  */
 
 package examples.transferlearning.modelhub.mobilenet
+import org.jetbrains.kotlinx.dl.dataset.preprocessing.fileLoader
 
+import examples.transferlearning.getFileFromResource
 import org.jetbrains.kotlinx.dl.api.core.Functional
+import org.jetbrains.kotlinx.dl.api.core.SavingFormat
+import org.jetbrains.kotlinx.dl.api.core.WritingMode
 import org.jetbrains.kotlinx.dl.api.core.activation.Activations
 import org.jetbrains.kotlinx.dl.api.core.initializer.GlorotUniform
 import org.jetbrains.kotlinx.dl.api.core.layer.Layer
@@ -14,16 +18,26 @@ import org.jetbrains.kotlinx.dl.api.core.layer.freeze
 import org.jetbrains.kotlinx.dl.api.core.loss.Losses
 import org.jetbrains.kotlinx.dl.api.core.metric.Metrics
 import org.jetbrains.kotlinx.dl.api.core.optimizer.Adam
+import org.jetbrains.kotlinx.dl.api.core.shape.TensorShape
+import org.jetbrains.kotlinx.dl.api.inference.TensorFlowInferenceModel
+import org.jetbrains.kotlinx.dl.api.inference.keras.loadWeights
 import org.jetbrains.kotlinx.dl.api.inference.keras.loadWeightsForFrozenLayers
+import org.jetbrains.kotlinx.dl.api.inference.keras.saveModelConfiguration
 import org.jetbrains.kotlinx.dl.api.inference.loaders.TFModelHub
 import org.jetbrains.kotlinx.dl.api.inference.loaders.TFModels
 import org.jetbrains.kotlinx.dl.api.inference.loaders.TFModels.CV.Companion.createPreprocessing
+import org.jetbrains.kotlinx.dl.api.preprocessing.pipeline
 import org.jetbrains.kotlinx.dl.dataset.OnHeapDataset
 import org.jetbrains.kotlinx.dl.dataset.embedded.dogsCatsSmallDatasetPath
+import org.jetbrains.kotlinx.dl.dataset.embedded.fashionMnist
 import org.jetbrains.kotlinx.dl.dataset.generator.FromFolders
+import org.jetbrains.kotlinx.dl.impl.inference.imagerecognition.predictLabel
 import org.jetbrains.kotlinx.dl.impl.preprocessing.call
+import org.jetbrains.kotlinx.dl.impl.preprocessing.image.*
 import org.jetbrains.kotlinx.dl.impl.summary.logSummary
+import java.awt.image.BufferedImage
 import java.io.File
+import javax.imageio.ImageIO
 
 private const val EPOCHS = 3
 private const val TRAINING_BATCH_SIZE = 8
@@ -45,7 +59,7 @@ private const val TRAIN_TEST_SPLIT_RATIO = 0.7
  */
 fun mobilenetWithAdditionalTraining() {
     val modelHub = TFModelHub(cacheDirectory = File("cache/pretrainedModels"))
-    val modelType = TFModels.CV.MobileNet()
+    val modelType = TFModels.CV.MobileNetV2()
     val model = modelHub.loadModel(modelType)
 
     val hdfFile = modelHub.loadWeights(modelType)
@@ -117,8 +131,111 @@ fun mobilenetWithAdditionalTraining() {
         val accuracyAfterTraining = it.evaluate(dataset = test, batchSize = TEST_BATCH_SIZE).metrics[Metrics.ACCURACY]
 
         println("Accuracy after training $accuracyAfterTraining")
+
+
+
+        val model2Dir = File("my-models/mobilenet_with_additional_training")
+        it.save(model2Dir,
+            saveOptimizerState = false,
+            savingFormat = SavingFormat.JsonConfigCustomVariables(),//SavingFormat.JsonConfigCustomVariables(),
+            writingMode = WritingMode.OVERRIDE)
+        //it.saveModelConfiguration("$model2Dir/modelConfig.json", isKerasFullyCompatible = true)
+
+        val model = Functional.loadModelConfiguration(File("my-models/mobilenet_with_additional_training/modelConfig.json"))
+        model.use {
+            setUpModel(it)
+            File(dogsCatsSmallDatasetPath() + "/cat").listFiles().forEach { imaFile ->
+                val inputData = myFileDataLoader.load(imaFile)
+                val res = it.predictLabel(inputData)
+                println("Predicted object for ${imaFile.name} is ${res}")
+            }
+        }
+
+//        val singleImage = File(dogsCatsSmallDatasetPath() + "/cat").listFiles().first()
+//        val image: BufferedImage = ImageIO.read(singleImage)
+//        //val processedImage = preprocessing.apply(image).reshape(intArrayOf(1, 80, 80, 3))
+//
+//        val dogsCatsImages = dogsCatsSmallDatasetPath()
+//
+//
+//        Functional.loadModelConfiguration("$model2Dir/modelConfig.json").use {
+            //it.reshape(28, 28, 1)
+//            val dataset = OnHeapDataset.create(
+//                File(dogsCatsImages),
+//                FromFolders(mapping = mapOf("cat" to 0, "dog" to 1)),
+//                TFModels.CV.MobileNetV2().createPreprocessing(it)    )
+//            val (train, test) = dataset.split(TRAIN_TEST_SPLIT_RATIO)
+//            val stringLabels = mapOf(0 to "cat",
+//                1 to "dog",
+//            )
+//            val prediction = it.predict(test.getX(0))
+//            val actualLabel = test.getY(0)
+//
+//            println("Predicted label is: $prediction. This corresponds to class ${stringLabels[prediction]}.")
+//            println("Actual label is: $actualLabel.")
+//        }
+
     }
 }
 
 /** */
 fun main(): Unit = mobilenetWithAdditionalTraining()
+
+
+fun main_() {
+
+    val singleImage = File(dogsCatsSmallDatasetPath() + "/cat").listFiles().first()
+    val image: BufferedImage = ImageIO.read(singleImage)
+    //val processedImage = preprocessing.apply(image).reshape(intArrayOf(1, 80, 80, 3))
+
+    val dogsCatsImages = dogsCatsSmallDatasetPath()
+
+
+//    val fileDataLoader = pipeline<BufferedImage>()
+//        .convert { colorMode = ColorMode.BGR }
+//        .toFloatArray { }
+//        .call(TFModels.CV.MobileNet().preprocessor)
+//        .fileLoader()
+//    val (train, test) = fashionMnist()
+//
+    TensorFlowInferenceModel.load(File("my-models/mobilenet_with_additional_training")).use {
+        //it.reshape(28, 28, 1)
+            //it.reshape(28, 28, 1)
+            it.graphToString()
+    }
+}
+
+val myFileDataLoader = pipeline<BufferedImage>()
+    .resize {
+        outputHeight = 224
+        outputHeight = 224
+        interpolation = InterpolationType.BILINEAR
+    }.convert { colorMode = ColorMode.BGR }
+    .toFloatArray {  }
+    .call(TFModels.CV.MobileNetV2().preprocessor)
+    .fileLoader()
+
+fun setUpModel(it:Functional) {
+    it.compile(
+        optimizer = Adam(),
+        loss = Losses.MAE,
+        metric = Metrics.ACCURACY
+    )
+
+    it.logSummary()
+    it.loadWeights(File("my-models/mobilenet_with_additional_training"))
+    it.layers.forEach{println(it.name)}
+
+//    val accuracyBeforeTraining = it.evaluate(dataset = test, batchSize = 16).metrics[Metrics.ACCURACY]
+//    println("Accuracy before training $accuracyBeforeTraining")
+//
+//    it.fit(
+//        dataset = train,
+//        batchSize = 8,
+//        epochs = 2
+//    )
+//
+//    val accuracyAfterTraining = it.evaluate(dataset = test, batchSize = 16).metrics[Metrics.ACCURACY]
+//
+//    println("Accuracy after training $accuracyAfterTraining")
+}
